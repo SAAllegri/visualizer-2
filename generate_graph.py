@@ -3,33 +3,44 @@ import pandas as pd
 import networkx as nx
 import itertools
 import networkx as nx
+import pandas as pd
 import json
 from colour import Color
 
-class Generate_Graph:
-    def __init__(self, df_list=None, target_cui_target_name_dict=None) -> None:
+import time
 
-        self._format_data(df_list, target_cui_target_name_dict)
+class Generate_Graph:
+    def __init__(self, json_input=None) -> None:
+        self.data_list = []
+        
+        self._format_data(json_input)
+
         self._initialize_starting_elements()
+
         self._adjust_data()
 
         self._generate_color_mapping()
-        self.starting_table_data = self._generate_table()
+
+        self.table_data_initial = self._generate_table()
 
         self.starting_nx_graph = self._generate_nx_graph()
+
         self.starting_elements = self.generate_graph_elements()
 
     def reset_graph(self):
-
-        self.randomized_color_button_clicks = self.randomized_color_button_clicks_initial
 
         self.node_hetesim_range = self.node_hetesim_range_initial
         self.edge_hetesim_range = self.edge_hetesim_range_initial
         self.max_node_count = self.max_node_count_initial
 
         self.specific_target_dropdown = self.specific_target_dropdown_initial
+        self.specific_target_input_options = self.specific_target_input_options_initial
+
         self.specific_source_dropdown = self.specific_source_dropdown_initial
+        self.specific_source_input_options = self.specific_source_input_options_initial
+
         self.specific_type_dropdown = self.specific_type_dropdown_initial
+        self.specific_type_input_options = self.specific_type_input_options_initial
 
         self.target_spread = self.target_spread_initial
         self.sn_spread = self.sn_spread_initial
@@ -39,6 +50,8 @@ class Generate_Graph:
         self.selected_type_color = self.selected_type_color_initial
         self.target_color = self.target_color_initial
 
+        self.table_data = self.table_data_initial
+
     def _generate_dummy_graph(self):
 
         base_names = [
@@ -47,21 +60,19 @@ class Generate_Graph:
 
         relationship_list = [{'T1', 'T2'}, {'T2', 'T3'}, {'T2', 'T3', 'T4'}, {'T4', 'T5'}, {'T5', 'T6'}, {'T6', 'T7'}, {'T7', 'T8'}, {'T7', 'T4'}]
         type_list = ['type_1', 'type_2', 'type_3', 'type_4', 'type_5', 'type_6', 'type_7', 'type_8']
-        dummy_df_list = []
+        dummy_json = {}
 
         for i in range(len(relationship_list)):
-            sn_list = []
-            sn_name_list = []
-            target_list = []
-            hetesim_list = []
-            type_list_random = []
+            temp_json = {}
 
             for name in base_names:
-                sn_list.append(name)
-                sn_name_list.append(name + '_name')
+                temp_json[name] = {}
+                temp_json[name]['source_name'] = str(name) + '_name'
+                temp_json[name]['source_type'] = type_list[np.random.randint(0, len(type_list))]
 
-                temp_dict = {}
-                for j in relationship_list[i]:
+                temp_json[name]['targets'] = {}
+
+                for target in relationship_list[i]:
                     temp_random_val = np.abs(np.random.normal(0, 0.5))
 
                     if temp_random_val > 1:
@@ -69,40 +80,39 @@ class Generate_Graph:
                     if temp_random_val < 0:
                         temp_random_val = 0
 
-                    temp_dict[j] = temp_random_val
-                    
-                target_list.append(temp_dict)
-                type_list_random.append(type_list[np.random.randint(0, len(type_list))])
+                    temp_json[name]['targets'][target] = {}
 
-            data = {
-                'sn': sn_list, # CUI
-                'sn_name': sn_name_list, # SN name
-                'targets': target_list, # Target CUI
-                'type': type_list_random # SN type
-                }
+                    temp_json[name]['targets'][target]['name'] = str(target) + '_name'
+                    temp_json[name]['targets'][target]['hetesim_score'] = temp_random_val
 
-            dummy_df_list.append(pd.DataFrame(data))
+            dummy_json['semnet_run_' + str(i)] = temp_json
+        
+        return dummy_json
 
-        dummy_target_cui_target_name_dict = {
-            'T1': 'T1_name', 
-            'T2': 'T2_name', 
-            'T3': 'T3_name', 
-            'T4': 'T4_name', 
-            'T5': 'T5_name', 
-            'T6': 'T6_name', 
-            'T7': 'T7_name', 
-            'T8': 'T8_name'
-            }
+    def generate_formatted_json(self, semnet_df_list):
 
-        return [dummy_df_list, dummy_target_cui_target_name_dict]
+        formatted_dict = {}
 
-    def _format_data(self, df_list_input, target_cui_target_name_dict_input):
+        for df in semnet_df_list:
+            for _, row in df.iterrows():
+                if row['source_node'] in formatted_dict:
+                    formatted_dict[row['source_node']]['targets'][row['target_node']] = {'name': row['target_name'], 'hetesim_score': row['hetesim_score']}
+                
+                else:
+                    formatted_dict[row['source_node']] = {}
+                    formatted_dict[row['source_node']]['source_name'] = row['source_name']
+                    formatted_dict[row['source_node']]['source_type'] = row['source_type']
+                    formatted_dict[row['source_node']]['targets'] = {}
+                    formatted_dict[row['source_node']]['targets'][row['target_node']] = {'name': row['target_name'], 'hetesim_score': row['hetesim_score']}
 
-        if (df_list_input == None) & (target_cui_target_name_dict_input == None):
-            dummy_data = self._generate_dummy_graph()
-            df_list_input = dummy_data[0]
-            target_cui_target_name_dict_input = dummy_data[1]
+        return formatted_dict
 
+    def _format_data(self, complete_json_input):
+
+        
+        if (complete_json_input == None):
+            complete_json_input = self._generate_dummy_graph()
+        
         formatted_df_list = []
 
         target_relationship_list_formatted = []
@@ -110,39 +120,46 @@ class Generate_Graph:
         sn_type_dict_formatted = {}
         sn_cui_sn_name_dict = {}
 
-        for i, df in enumerate(df_list_input):
-            sub_df_formatted = pd.DataFrame(columns=['sn', 'type', 'sn_name', 'target', 'hetesim', 'mean_hetesim'])
+        target_cui_target_name_dict = {}
 
-            for _, row in df.iterrows():
-                sn_adjusted = str(row['sn']) + '_' + str(i)
-                sn_type_adjusted = row['type']
-                sn_name_adjusted = row['sn_name']
-                sn_mean_hetesim_adjusted = []
+        for i, semnet_run in enumerate(complete_json_input):
+            sub_df_formatted = pd.DataFrame(columns=['sn_id', 'sn_cui', 'sn_name', 'sn_type', 'target', 'hetesim', 'mean_hetesim'])
+            involved_targets = set()
 
-                target_dict = row['targets']
+            for _, sn_cui in enumerate(complete_json_input[semnet_run]):
+                sn_id = str(sn_cui) + '_' + str(i)
+                sn_name_adjusted = complete_json_input[semnet_run][sn_cui]['source_name']
+                sn_type_adjusted = complete_json_input[semnet_run][sn_cui]['source_type']
+                sn_hetesim_list = []
 
-                for target in target_dict:
-                    sn_mean_hetesim_adjusted.append(target_dict[target])
+                for target_cui in complete_json_input[semnet_run][sn_cui]['targets']:
+                    sn_hetesim_list.append(complete_json_input[semnet_run][sn_cui]['targets'][target_cui]['hetesim_score'])
                 
-                for target in target_dict:
+                for target_cui in complete_json_input[semnet_run][sn_cui]['targets']:
                     sub_df_formatted = sub_df_formatted.append({
-                        'sn': sn_adjusted,
-                        'type': sn_type_adjusted,
-                        'sn_cui': row['sn'],
+                        'sn_id': sn_id,
+                        'sn_cui': sn_cui, 
                         'sn_name': sn_name_adjusted,
-                        'target': target, 
-                        'hetesim': target_dict[target],
-                        'mean_hetesim': np.mean(sn_mean_hetesim_adjusted)
+                        'sn_type': sn_type_adjusted,
+                        'target': target_cui, 
+                        'hetesim': complete_json_input[semnet_run][sn_cui]['targets'][target_cui]['hetesim_score'],
+                        'mean_hetesim': np.mean(sn_hetesim_list)
                         }, ignore_index=True)
 
-                    sub_df_formatted = sub_df_formatted.sort_values(by=['mean_hetesim'], ascending=False)
+                    if target_cui not in involved_targets:
+                        involved_targets.add(target_cui)
 
-                sn_mean_hetesim_dict_formatted[sn_adjusted] = np.mean(sn_mean_hetesim_adjusted)
-                sn_type_dict_formatted[sn_adjusted] = sn_type_adjusted
+                    if target_cui not in target_cui_target_name_dict:
+                        target_cui_target_name_dict[target_cui] = complete_json_input[semnet_run][sn_cui]['targets'][target_cui]['name']
 
-                sn_cui_sn_name_dict[row['sn']] = sn_name_adjusted
+                sub_df_formatted = sub_df_formatted.sort_values(by=['mean_hetesim'], ascending=False)
 
-            target_relationship_list_formatted.append(tuple(df.iloc[0]['targets'].keys()))
+                sn_mean_hetesim_dict_formatted[sn_id] = np.mean(sn_hetesim_list)
+                sn_type_dict_formatted[sn_id] = sn_type_adjusted
+
+                sn_cui_sn_name_dict[sn_cui] = sn_name_adjusted
+
+            target_relationship_list_formatted.append(tuple(involved_targets))
 
             formatted_df_list.append(sub_df_formatted)
 
@@ -151,13 +168,11 @@ class Generate_Graph:
         self.sn_mean_hetesim_dict_formatted = sn_mean_hetesim_dict_formatted
         self.sn_type_dict_formatted = sn_type_dict_formatted
 
-        self.target_cui_target_name_dict = target_cui_target_name_dict_input
+        self.target_cui_target_name_dict = target_cui_target_name_dict
         self.sn_cui_sn_name_dict = sn_cui_sn_name_dict
 
         self.combined_formatted_df = pd.concat(formatted_df_list)
-        self.unique_types = sorted(self.combined_formatted_df['type'].unique())
-
-        # self.adjusted_df_list = self.formatted_df_list.copy()
+        self.unique_types = sorted(self.combined_formatted_df['sn_type'].unique())
 
         return formatted_df_list
 
@@ -228,9 +243,10 @@ class Generate_Graph:
         self.specific_target_input_options = []
         inverted_target_cui_target_name_dict = {v: k for k, v in self.target_cui_target_name_dict.items()}
 
-        for entry in sorted([self.target_cui_target_name_dict.values()]):
+        for entry in sorted(list(self.target_cui_target_name_dict.values())):
             self.specific_target_input_options.append({'label': entry, 'value': inverted_target_cui_target_name_dict[entry]})
 
+        self.specific_target_input_options_initial = self.specific_target_input_options
         self.specific_target_dropdown_initial = self.specific_target_dropdown
 
         # Specific source filtering initialization
@@ -239,11 +255,10 @@ class Generate_Graph:
         self.specific_source_input_options = []
         inverted_sn_cui_sn_name_dict = {v: k for k, v in self.sn_cui_sn_name_dict.items()}
 
-        for entry in sorted([self.sn_cui_sn_name_dict.values()]):
+        for entry in sorted(list(self.sn_cui_sn_name_dict.values())):
             self.specific_source_input_options.append({'label': entry, 'value': inverted_sn_cui_sn_name_dict[entry]})
-
+        
         self.specific_source_input_options_initial = self.specific_source_input_options
-
         self.specific_source_dropdown_initial = self.specific_source_dropdown
 
         # Specific type filtering initialization
@@ -254,13 +269,17 @@ class Generate_Graph:
         for entry in self.unique_types:
             self.specific_type_input_options.append({'label': entry, 'value': entry})
 
+        self.specific_type_input_options_initial = self.specific_type_input_options
         self.specific_type_dropdown_initial = self.specific_type_dropdown
 
         # TN/SN spread initialization
         self.target_spread = 1
         self.target_spread_initial = self.target_spread
+        self.target_spread_previous = 1
+
         self.sn_spread = 0.1
         self.sn_spread_initial = self.sn_spread
+        self.sn_spread_previous = 0.1
 
         # Gradient start initialization
         self.gradient_start = '#272B30'
@@ -283,12 +302,7 @@ class Generate_Graph:
         self.target_color_initial = self.target_color
 
         # Randomized color initialization
-        self.randomized_color_button_clicks = None
         self.random_color_primacy = True
-        self.randomized_color_button_clicks_initial = self.randomized_color_button_clicks
-
-        # Reset button
-        self.reset_button_clicks = None
     
     def _adjust_data(self):
 
@@ -296,7 +310,6 @@ class Generate_Graph:
 
         if self.max_node_count != self.max_node_count_initial:
             adjusted_df_list = self._adjust_max_nodes(adjusted_df_list)
-            self._adjust_dropdown_options(adjusted_df_list)
 
         if self.node_hetesim_range != self.node_hetesim_range_initial:
             adjusted_df_list = self._adjust_node_hetesim_range(adjusted_df_list)
@@ -311,17 +324,56 @@ class Generate_Graph:
             adjusted_df_list = self._adjust_specific_source_dropdown(adjusted_df_list)
 
         if self.specific_type_dropdown != self.specific_type_dropdown_initial:
-            adjusted_df_list = self._adjust_specific_type_dropdown(adjusted_df_list)      
+            adjusted_df_list = self._adjust_specific_type_dropdown(adjusted_df_list)
+
+        self._adjust_specific_source_options(adjusted_df_list)
         
         self.adjusted_df_list = adjusted_df_list
 
+        self.combined_adjusted_df = pd.concat(self.adjusted_df_list, ignore_index=True)
+
         self._generate_table()
 
-        self.specific_source_input_options = None
+    def _trim_graph(self):
+        if self.target_spread != self.target_spread_previous:
+            self._generate_nx_graph()
+            self.target_spread_previous = self.target_spread
+
+        elif self.sn_spread != self.sn_spread_previous:
+            self._generate_nx_graph()
+            self.sn_spread_previous = self.sn_spread
+        
+        elif self.combined_adjusted_df.shape[0] > len(self.adjusted_nx_graph.edges):
+            self._generate_nx_graph()
+            
+        else:
+            remaining_edges_df = self.combined_adjusted_df[['sn_id', 'target']]
+            total_edges_df = self.combined_formatted_df[['sn_id', 'target']]
+
+            remove_edges_df = total_edges_df[~total_edges_df.apply(tuple, 1).isin(remaining_edges_df.apply(tuple, 1))]
+
+            remove_edges_list = remove_edges_df.to_records(index=False)
+            remove_nodes_list = remove_edges_df['sn_id'].to_list()
+
+            remove_edges_list_formatted = []
+            remove_nodes_list_formatted = []
+
+            for edge in remove_edges_list:
+                remove_edges_list_formatted.append(tuple(edge))
+
+            temporary_graph = self.adjusted_nx_graph.copy()
+            temporary_graph.remove_edges_from(remove_edges_list_formatted)
+            temporary_graph.remove_nodes_from(list(nx.isolates(temporary_graph)))
+
+            for _, row in self.combined_adjusted_df.iterrows():
+                temporary_graph.nodes[row['sn_id']]['color'] = str(self.type_color_dict[self.sn_type_dict_formatted[row['sn_id']]])
+
+            for target_cui in self.combined_adjusted_df['target'].unique():
+                temporary_graph.nodes[target_cui]['color'] = self.type_color_dict['target']
+            
+            self.nx_graph = temporary_graph
 
     def _generate_nx_graph(self):
-
-        self.combined_adjusted_df = pd.concat(self.adjusted_df_list)
 
         target_edges = []
         for relationship in self.target_relationship_list_formatted:
@@ -338,19 +390,19 @@ class Generate_Graph:
             pos_dict[entry] = [initial_spring[entry][0], initial_spring[entry][1]]
             fixed_list.append(entry)
 
-        final_graph = nx.from_pandas_edgelist(self.combined_adjusted_df, 'sn', 'target', ['sn_name', 'sn_cui', 'hetesim', 'mean_hetesim'])
-        final_spring_graph = nx.spring_layout(final_graph, dim=2, pos=pos_dict, fixed=fixed_list, k=self.sn_spread, iterations=100)
-
+        final_graph = nx.from_pandas_edgelist(self.combined_adjusted_df, 'sn_id', 'target', ['sn_name', 'sn_cui', 'hetesim', 'mean_hetesim'])
+        final_spring_graph = nx.spring_layout(final_graph, dim=2, pos=pos_dict, fixed=fixed_list, k=self.sn_spread, iterations=20)
+        
         for _, row in self.combined_adjusted_df.iterrows():
-            final_graph.nodes[row['sn']]['id'] = row['sn']
-            final_graph.nodes[row['sn']]['cui'] = row['sn_cui']
-            final_graph.nodes[row['sn']]['name'] = row['sn_name']
-            final_graph.nodes[row['sn']]['type'] = row['type']
-            final_graph.nodes[row['sn']]['mean_hetesim'] = row['mean_hetesim']
-            final_graph.nodes[row['sn']]['size'] = self.max_node_size_ref * row['mean_hetesim']
-            final_graph.nodes[row['sn']]['color'] = str(self.type_color_dict[self.sn_type_dict_formatted[row['sn']]])
-            final_graph.nodes[row['sn']]['sn_or_tn'] = 'source_node'
-            final_graph.nodes[row['sn']]['position'] = {'x': 100 * final_spring_graph[row['sn']][0], 'y': 100 * final_spring_graph[row['sn']][1]}
+            final_graph.nodes[row['sn_id']]['id'] = row['sn_id']
+            final_graph.nodes[row['sn_id']]['cui'] = row['sn_cui']
+            final_graph.nodes[row['sn_id']]['name'] = row['sn_name']
+            final_graph.nodes[row['sn_id']]['type'] = row['sn_type']
+            final_graph.nodes[row['sn_id']]['mean_hetesim'] = row['mean_hetesim']
+            final_graph.nodes[row['sn_id']]['size'] = self.max_node_size_ref * row['mean_hetesim']
+            final_graph.nodes[row['sn_id']]['color'] = str(self.type_color_dict[self.sn_type_dict_formatted[row['sn_id']]])
+            final_graph.nodes[row['sn_id']]['sn_or_tn'] = 'source_node'
+            final_graph.nodes[row['sn_id']]['position'] = {'x': 100 * final_spring_graph[row['sn_id']][0], 'y': 100 * final_spring_graph[row['sn_id']][1]}
 
         for target_cui in self.combined_adjusted_df['target'].unique():
             final_graph.nodes[target_cui]['id'] = target_cui
@@ -361,6 +413,7 @@ class Generate_Graph:
             final_graph.nodes[target_cui]['position'] = {'x': 100 * final_spring_graph[target_cui][0], 'y': 100 * final_spring_graph[target_cui][1]}
 
         self.nx_graph = final_graph
+        self.adjusted_nx_graph = final_graph
 
         return final_graph
 
@@ -403,13 +456,29 @@ class Generate_Graph:
         return elements
 
     def update_graph_elements(self):
-        
+
         self._generate_color_mapping()
+
         self._adjust_data()
-        self._generate_nx_graph()
+
+        self._trim_graph()
+
         self.generate_graph_elements()
 
         return self.elements
+
+    def load_additional_data(self, json_input):
+        self._format_data(json_input)
+        self._initialize_starting_elements()
+        self._adjust_data()
+
+        self._generate_color_mapping()
+        self.table_data_initial = self._generate_table()
+
+        self.starting_nx_graph = self._generate_nx_graph()
+        self.starting_elements = self.generate_graph_elements()
+
+        return self.starting_elements
 
     def _generate_color_mapping(self):
 
@@ -482,8 +551,8 @@ class Generate_Graph:
         adjusted_df_list = []
 
         for df in df_list:
-            unique_max_count_sns = df['sn'].unique()[:self.max_node_count]
-            df = df[df['sn'].isin(unique_max_count_sns)]
+            unique_max_count_sns = df['sn_id'].unique()[:self.max_node_count]
+            df = df[df['sn_id'].isin(unique_max_count_sns)]
             adjusted_df_list.append(df)
 
         return adjusted_df_list
@@ -511,22 +580,40 @@ class Generate_Graph:
         adjusted_df_list = []
 
         for df in df_list:
-            adjusted_df_list.append(df[df['type'].isin(self.specific_type_dropdown)])
+            adjusted_df_list.append(df[df['sn_type'].isin(self.specific_type_dropdown)])
 
         return adjusted_df_list
 
-    def _adjust_dropdown_options(self, df_list):
-        specific_source_input_options_list = []
+    def _adjust_specific_source_options(self, df_list):
+
         remaining_sources = []
+        remaining_targets = []
+        remaining_types = []
+
+        specific_source_input_options_list = []
+        specific_target_input_options_list = []
+        specific_type_input_options_list = []
 
         for df in df_list:
             remaining_sources = remaining_sources + list(df['sn_cui'].unique())
+            remaining_targets = remaining_targets + list(df['target'].unique())
+            remaining_types = remaining_types + list(df['sn_type'].unique())
 
         for entry in self.specific_source_input_options_initial:
             if entry['value'] in remaining_sources:
-                specific_source_input_options_list.append({'label': entry['label'], 'value': entry['value']})
+                specific_source_input_options_list.append(entry)
+
+        for entry in self.specific_target_input_options_initial:
+            if entry['value'] in remaining_targets:
+                specific_target_input_options_list.append(entry)
+
+        for entry in self.specific_type_input_options_initial:
+            if entry['value'] in remaining_types:
+                specific_type_input_options_list.append(entry)
 
         self.specific_source_input_options = specific_source_input_options_list
+        self.specific_target_input_options = specific_target_input_options_list
+        self.specific_type_input_options = specific_type_input_options_list
 
     def generate_node_data(self, selected_nodes_list):
 
@@ -576,9 +663,8 @@ class Generate_Graph:
     def _generate_table(self):
 
         combined_df_generating = pd.concat(self.adjusted_df_list)
-
         combined_df_generating = combined_df_generating.round({'hetesim': 3, 'mean_hetesim': 3})
-        combined_df_generating = combined_df_generating[['sn_name', 'target', 'hetesim', 'mean_hetesim', 'type', 'sn_cui']]
+        combined_df_generating = combined_df_generating[['sn_name', 'target', 'hetesim', 'mean_hetesim', 'sn_type', 'sn_cui']]
         combined_df_generating = combined_df_generating.replace({"target": self.target_cui_target_name_dict})
 
         sorted_df_list = []
